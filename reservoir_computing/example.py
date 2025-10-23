@@ -34,12 +34,13 @@ def run_example(problem_type="mackey_glass"):
         data = generate_mackey_glass(n_samples)
         input_dim = data.shape[1]
         output_dim = data.shape[1]
-        reservoir_dim = 100
+        reservoir_dim = 200 # Increased reservoir size
         spectral_radius = 0.9
         leaking_rate = 0.3
         input_scaling = 0.5
         washout_steps = 100
         regularization_coeff = 1e-8
+        num_layers = 2 # Added multiple layers
         title = 'Mackey-Glass Time Series Prediction using Reservoir Computing'
         y_label = 'Value'
     elif problem_type == "double_pendulum":
@@ -54,12 +55,13 @@ def run_example(problem_type="mackey_glass"):
         data = np.vstack((true_x1, true_y1, true_x2, true_y2)).T
         input_dim = data.shape[1] # x1, y1, x2, y2 coordinates
         output_dim = data.shape[1] # x1, y1, x2, y2 coordinates
-        reservoir_dim = 200 # Increased reservoir size for more complex dynamics
+        reservoir_dim = 400 # Increased reservoir size for more complex dynamics
         spectral_radius = 0.8
         leaking_rate = 0.3
         input_scaling = 0.5
         washout_steps = 200 # Increased washout steps
         regularization_coeff = 1e-7 # Adjusted regularization
+        num_layers = 3 # Added multiple layers
         title = 'Double Pendulum (X1,Y1,X2,Y2) Prediction using Reservoir Computing'
         y_label = 'Coordinate Value'
     elif problem_type == "point_following":
@@ -71,7 +73,7 @@ def run_example(problem_type="mackey_glass"):
         acceleration_factor = 0.01
 
         true_positions, true_destinations, target_directions = generate_point_following_data(
-            n_samples, teleport_interval, max_speed, acceleration_factor
+            n_samples
         )
         
         # Input to the model: current position and destination coordinates
@@ -81,12 +83,13 @@ def run_example(problem_type="mackey_glass"):
 
         input_dim = data_input.shape[1] # 4 (x_point, y_point, x_dest, y_dest)
         output_dim = data_output.shape[1] # 2 (dx, dy)
-        reservoir_dim = 300 # Increased reservoir size
+        reservoir_dim = 600 # Increased reservoir size
         spectral_radius = 0.9
         leaking_rate = 0.3
         input_scaling = 0.5
         washout_steps = 200
         regularization_coeff = 1e-7
+        num_layers = 2 # Added multiple layers
         title = 'Point Following Direction Prediction using Reservoir Computing'
         y_label = 'Direction Value'
     else:
@@ -106,9 +109,10 @@ def run_example(problem_type="mackey_glass"):
         sparsity=sparsity,
         leaking_rate=leaking_rate,
         input_scaling=input_scaling,
+        num_layers=num_layers, # Pass num_layers
         random_state=random_state
     )
-    print(f"RNN Reservoir initialized with {reservoir_dim} neurons, spectral radius={spectral_radius}, leaking rate={leaking_rate}, input scaling={input_scaling}.")
+    print(f"RNN Reservoir initialized with {reservoir_dim} neurons, spectral radius={spectral_radius}, leaking rate={leaking_rate}, input scaling={input_scaling}, num_layers={num_layers}.")
 
     # 3. Initialize Reservoir Computing Model
     print("Initializing Reservoir Computing Model...")
@@ -235,7 +239,7 @@ def run_example(problem_type="mackey_glass"):
         
         animation_obj = animate_point_following(
             true_positions, true_destinations, full_predicted_directions,
-            max_speed=max_speed, acceleration_factor=acceleration_factor, interval=50
+            interval=50
         )
 
     plt.show() # This will display all figures and animations

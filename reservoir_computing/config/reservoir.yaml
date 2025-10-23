@@ -1,0 +1,12 @@
+# Configuration for the Reservoir module
+reservoir:
+  n_inputs: 1
+  n_outputs: 1
+  n_reservoir: 100
+  spectral_radius: 0.9
+  sparsity: 0.1
+  noise: 0.001
+  random_state: 42
+  leaking_rate: 1.0
+  input_scaling: 1.0
+  num_layers: 1

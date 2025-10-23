@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 def normalize_data(data: np.ndarray) -> np.ndarray:
     """

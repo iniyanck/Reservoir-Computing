@@ -1,16 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
-
-# Constants
-G = 9.8  # acceleration due to gravity, in m/s^2
+from .config_loader import ConfigLoader
 
 class DoublePendulum:
-    def __init__(self, L1=1.0, L2=1.0, M1=1.0, M2=1.0):
-        self.L1 = L1  # length of pendulum 1 in m
-        self.L2 = L2  # length of pendulum 2 in m
-        self.M1 = M1  # mass of pendulum 1 in kg
-        self.M2 = M2  # mass of pendulum 2 in kg
+    def __init__(self, L1=None, L2=None, M1=None, M2=None, config_loader=None):
+        if config_loader is None:
+            self.config_loader = ConfigLoader()
+        else:
+            self.config_loader = config_loader
+
+        self.L1 = L1 if L1 is not None else self.config_loader.get('double_pendulum.l1', 1.0)
+        self.L2 = L2 if L2 is not None else self.config_loader.get('double_pendulum.l2', 1.0)
+        self.M1 = M1 if M1 is not None else self.config_loader.get('double_pendulum.m1', 1.0)
+        self.M2 = M2 if M2 is not None else self.config_loader.get('double_pendulum.m2', 1.0)
+        self.G = self.config_loader.get('double_pendulum.g', 9.81) # Gravity constant
 
     def _deriv(self, state, t):
         """
@@ -27,17 +31,17 @@ class DoublePendulum:
         delta = state[2] - state[0]
         den1 = (self.L1 * (self.M1 + self.M2) - self.M2 * self.L1 * np.cos(delta)**2)
         dydx[1] = (self.M2 * self.L1 * state[1]**2 * np.sin(delta) * np.cos(delta) +
-                   self.M2 * G * np.sin(state[2]) * np.cos(delta) +
+                   self.M2 * self.G * np.sin(state[2]) * np.cos(delta) +
                    self.M2 * self.L2 * state[3]**2 * np.sin(delta) -
-                   (self.M1 + self.M2) * G * np.sin(state[0])) / den1
+                   (self.M1 + self.M2) * self.G * np.sin(state[0])) / den1
 
         dydx[2] = state[3]
 
         den2 = (self.L2 * (self.M1 + self.M2) - self.M2 * self.L2 * np.cos(delta)**2)
         dydx[3] = (-self.M2 * self.L2 * state[3]**2 * np.sin(delta) * np.cos(delta) +
-                   (self.M1 + self.M2) * G * np.sin(state[0]) * np.cos(delta) -
+                   (self.M1 + self.M2) * self.G * np.sin(state[0]) * np.cos(delta) -
                    (self.M1 + self.M2) * self.L1 * state[1]**2 * np.sin(delta) -
-                   (self.M1 + self.M2) * G * np.sin(state[2])) / den2
+                   (self.M1 + self.M2) * self.G * np.sin(state[2])) / den2
         return dydx
 
     def simulate(self, initial_state, t_points):
@@ -186,16 +190,14 @@ def animate_free_run_pendulum(predicted_x1, predicted_y1, predicted_x2, predicte
 def run_double_pendulum_example():
     print("Starting Double Pendulum Reservoir Computing Example...")
 
+    config_loader = ConfigLoader()
+
     # 1. Generate Data (Double Pendulum (x,y) movement)
     print("Generating Double Pendulum (x,y) movement data...")
-    n_samples = 5000
-    dt = 0.02
+    n_samples = config_loader.get('double_pendulum.timesteps', 5000)
+    dt = config_loader.get('double_pendulum.dt', 0.01)
     initial_state = [np.pi/2, 0, np.pi/2, 0] # Initial angles and velocities
-    true_x1, true_y1, true_x2, true_y2 = generate_double_pendulum_data(n_samples, dt, initial_state)
-    
-    # Define L1 and L2 for animation, as they are used in animate_double_pendulum
-    L1 = 1.0
-    L2 = 1.0
+    true_x1, true_y1, true_x2, true_y2 = generate_double_pendulum_data(n_samples, dt, initial_state, config_loader=config_loader)
     
     # The data for the RC model will still be just the (x2, y2) coordinates
     data = np.vstack((true_x2, true_y2)).T
@@ -205,12 +207,12 @@ def run_double_pendulum_example():
 
     # 2. Initialize Reservoir
     print("Initializing RNN Reservoir...")
-    reservoir_dim = 200 # Increased reservoir size for more complex dynamics
-    spectral_radius = 0.8
-    sparsity = 0.1
-    leaking_rate = 0.3
-    input_scaling = 0.5
-    random_state = np.random.RandomState(42)
+    reservoir_dim = config_loader.get('reservoir.n_reservoir', 200)
+    spectral_radius = config_loader.get('reservoir.spectral_radius', 0.8)
+    sparsity = config_loader.get('reservoir.sparsity', 0.1)
+    leaking_rate = config_loader.get('reservoir.leaking_rate', 0.3)
+    input_scaling = config_loader.get('reservoir.input_scaling', 0.5)
+    random_state = np.random.RandomState(config_loader.get('reservoir.random_state', 42))
 
     rnn_reservoir = RNNReservoir(
         input_dim=input_dim,
@@ -219,13 +221,14 @@ def run_double_pendulum_example():
         sparsity=sparsity,
         leaking_rate=leaking_rate,
         input_scaling=input_scaling,
-        random_state=random_state
+        random_state=random_state,
+        config_loader=config_loader
     )
     print(f"RNN Reservoir initialized with {reservoir_dim} neurons, spectral radius={spectral_radius}, leaking rate={leaking_rate}, input scaling={input_scaling}.")
 
     # 3. Initialize Reservoir Computing Model
     print("Initializing Reservoir Computing Model...")
-    washout_steps = 200 # Increased washout steps
+    washout_steps = config_loader.get('trainer.n_drop', 200)
     rc_model = ReservoirComputingModel(
         reservoir=rnn_reservoir,
         output_dim=output_dim,
@@ -235,7 +238,7 @@ def run_double_pendulum_example():
 
     # 4. Prepare Data for Training and Testing
     print("Preparing data for training and testing...")
-    train_ratio = 0.7
+    train_ratio = config_loader.get('trainer.train_ratio', 0.7) # Assuming a train_ratio in trainer config
     trainer = Trainer(rc_model)
     X_train, y_train, X_test, y_test = trainer.prepare_data(data, train_ratio=train_ratio, normalize=True)
     print(f"Training data shape: {X_train.shape}, {y_train.shape}")
@@ -243,7 +246,7 @@ def run_double_pendulum_example():
 
     # 5. Train and Evaluate
     print("Training and evaluating model...")
-    regularization_coeff = 1e-7 # Adjusted regularization
+    regularization_coeff = config_loader.get('trainer.regularization', 1e-7)
     predictions_train, predictions_test, mse_train, mse_test = trainer.train_and_evaluate(
         X_train, y_train, X_test, y_test, regularization_coeff=regularization_coeff
     )
@@ -293,7 +296,7 @@ def run_double_pendulum_example():
     # The model only predicts (x2, y2)
     ani_one_step = animate_double_pendulum(true_x1, true_y1, true_x2, true_y2,
                                            true_x1, true_y1, full_predicted_data_x2, full_predicted_data_y2,
-                                           L1, L2, interval=dt*1000)
+                                           interval=dt*1000, config_loader=config_loader)
     plt.show() # Display the one-step-ahead animation
 
     # 8. Free-running prediction and animation
@@ -325,7 +328,7 @@ def run_double_pendulum_example():
     print("Animating free-running results...")
     ani_free_run = animate_free_run_pendulum(free_run_true_x1, free_run_true_y1,
                                              free_run_predicted_x2, free_run_predicted_y2,
-                                             L1, L2, interval=dt*1000)
+                                             interval=dt*1000, config_loader=config_loader)
     plt.show() # Display the free-running animation
 
     print("Double Pendulum example finished.")

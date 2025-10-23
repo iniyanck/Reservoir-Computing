@@ -1,0 +1,15 @@
+# Configuration for specific applications
+point_following:
+  timesteps: 1000
+  dt: 0.01
+  target_frequency: 0.05
+  amplitude: 1.0
+
+double_pendulum:
+  timesteps: 5000
+  dt: 0.01
+  g: 9.81
+  l1: 1.0
+  l2: 1.0
+  m1: 1.0
+  m2: 1.0

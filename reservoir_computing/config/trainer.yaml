@@ -1,0 +1,5 @@
+# Configuration for the Trainer module
+trainer:
+  n_drop: 100
+  beta: 0.001
+  regularization: 0.01

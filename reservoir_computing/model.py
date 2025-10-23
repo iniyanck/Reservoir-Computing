@@ -78,3 +78,57 @@ class ReservoirComputingModel:
         # Compute output
         predictions = np.dot(states_with_bias, self.W_out)
         return predictions
+
+    def free_run_predict(self, initial_input_sequence: np.ndarray, prediction_steps: int) -> np.ndarray:
+        """
+        Generates predictions in a free-running (generative) mode.
+        The model's own previous output is fed back as the input for the next step.
+
+        Args:
+            initial_input_sequence (np.ndarray): An initial input sequence to prime the reservoir.
+                                                 Shape (priming_timesteps, input_dim).
+            prediction_steps (int): The number of steps to predict in free-running mode.
+
+        Returns:
+            np.ndarray: The predicted output sequence in free-running mode.
+                        Shape (prediction_steps, output_dim).
+        """
+        if self.W_out is None:
+            raise RuntimeError("Model has not been trained. Call 'train' method first.")
+        if self.reservoir.state is None:
+            # Initialize reservoir state if not already set (e.g., if train was not called)
+            self.reservoir.state = np.zeros((1, self.reservoir.reservoir_dim))
+
+        # 1. Prime the reservoir with the initial_input_sequence
+        # This updates the internal state of the reservoir
+        for t in range(initial_input_sequence.shape[0]):
+            input_t = initial_input_sequence[t:t+1, :] # Shape (1, input_dim)
+            new_state = self.reservoir._compute_state(input_t, self.reservoir.state)
+            self.reservoir._update_state(new_state)
+
+        # Get the last state after priming
+        current_reservoir_state = self.reservoir.state.copy() # Shape (1, reservoir_dim)
+
+        # Make an initial prediction based on the last primed state
+        last_primed_state_with_bias = np.hstack([current_reservoir_state, np.ones((1, 1))])
+        current_prediction = np.dot(last_primed_state_with_bias, self.W_out) # Shape (1, output_dim)
+
+        free_run_predictions = []
+        free_run_predictions.append(current_prediction.flatten())
+
+        # 2. Free-running prediction
+        for _ in range(prediction_steps - 1): # -1 because we already made one prediction
+            # The previous prediction becomes the input for the next step
+            input_for_next_step = current_prediction # Shape (1, output_dim)
+
+            # Update reservoir state using the predicted output as input
+            new_reservoir_state = self.reservoir._compute_state(input_for_next_step, current_reservoir_state)
+            self.reservoir._update_state(new_reservoir_state) # Update internal state
+            current_reservoir_state = new_reservoir_state.copy() # Keep track of the state
+
+            # Make a new prediction based on the new reservoir state
+            new_state_with_bias = np.hstack([current_reservoir_state, np.ones((1, 1))])
+            current_prediction = np.dot(new_state_with_bias, self.W_out)
+            free_run_predictions.append(current_prediction.flatten())
+
+        return np.array(free_run_predictions)

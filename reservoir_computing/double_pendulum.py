@@ -84,6 +84,9 @@ def generate_double_pendulum_data(n_samples, dt=0.02, initial_state=None, L1=1.0
     return x1, y1, x2, y2
 
 from matplotlib.animation import FuncAnimation
+from reservoir_computing.reservoir import RNNReservoir
+from reservoir_computing.model import ReservoirComputingModel
+from reservoir_computing.trainer import Trainer
 
 def animate_double_pendulum(true_x1, true_y1, true_x2, true_y2,
                             predicted_x1, predicted_y1, predicted_x2, predicted_y2,
@@ -140,6 +143,46 @@ def animate_double_pendulum(true_x1, true_y1, true_x2, true_y2,
                         init_func=init, blit=True, interval=interval)
     return ani
 
+def animate_free_run_pendulum(predicted_x1, predicted_y1, predicted_x2, predicted_y2,
+                              L1=1.0, L2=1.0, interval=20):
+    """
+    Animates only the free-running predicted double pendulum movement.
+    predicted_x1, predicted_y1: (N,) arrays of predicted (x,y) coordinates of pendulum 1
+    predicted_x2, predicted_y2: (N,) arrays of predicted (x,y) coordinates of pendulum 2
+    L1, L2: lengths of the pendulum rods
+    interval: delay between frames in ms
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect('equal')
+    ax.set_xlim(-(L1 + L2) * 1.2, (L1 + L2) * 1.2)
+    ax.set_ylim(-(L1 + L2) * 1.2, (L1 + L2) * 1.2)
+    ax.set_title('Double Pendulum Simulation: Free-Run Prediction')
+    ax.grid(True)
+
+    # Predicted pendulum
+    line_pred, = ax.plot([], [], 'o-', lw=2, color='red', label='Free-Run Predicted Pendulum')
+    time_text_pred = ax.text(0.02, 0.90, '', transform=ax.transAxes, color='red')
+
+    ax.legend()
+
+    def init():
+        line_pred.set_data([], [])
+        time_text_pred.set_text('')
+        return line_pred, time_text_pred
+
+    def update(frame):
+        # Predicted pendulum
+        x_pred = [0, predicted_x1[frame], predicted_x2[frame]]
+        y_pred = [0, predicted_y1[frame], predicted_y2[frame]]
+        line_pred.set_data(x_pred, y_pred)
+        time_text_pred.set_text(f'Pred Time: {frame * interval / 1000:.2f}s')
+
+        return line_pred, time_text_pred
+
+    ani = FuncAnimation(fig, update, frames=len(predicted_x2),
+                        init_func=init, blit=True, interval=interval)
+    return ani
+
 def run_double_pendulum_example():
     print("Starting Double Pendulum Reservoir Computing Example...")
 
@@ -149,6 +192,10 @@ def run_double_pendulum_example():
     dt = 0.02
     initial_state = [np.pi/2, 0, np.pi/2, 0] # Initial angles and velocities
     true_x1, true_y1, true_x2, true_y2 = generate_double_pendulum_data(n_samples, dt, initial_state)
+    
+    # Define L1 and L2 for animation, as they are used in animate_double_pendulum
+    L1 = 1.0
+    L2 = 1.0
     
     # The data for the RC model will still be just the (x2, y2) coordinates
     data = np.vstack((true_x2, true_y2)).T
@@ -237,9 +284,49 @@ def run_double_pendulum_example():
     # 7. Animate Results
     print("Animating results...")
     # Use the full data for animation, not just test data
-    full_true_data = np.vstack((y_train, y_test))
-    full_predicted_data = np.vstack((predictions_train, predictions_test))
-    animate_double_pendulum(full_true_data, full_predicted_data, L1, L2, interval=dt*1000)
+    full_true_data_x2 = np.vstack((y_train, y_test))[:, 0]
+    full_true_data_y2 = np.vstack((y_train, y_test))[:, 1]
+    full_predicted_data_x2 = np.vstack((predictions_train, predictions_test))[:, 0]
+    full_predicted_data_y2 = np.vstack((predictions_train, predictions_test))[:, 1]
+
+    # For the predicted pendulum, x1 and y1 are not predicted, so we use the true x1, y1
+    # The model only predicts (x2, y2)
+    ani_one_step = animate_double_pendulum(true_x1, true_y1, true_x2, true_y2,
+                                           true_x1, true_y1, full_predicted_data_x2, full_predicted_data_y2,
+                                           L1, L2, interval=dt*1000)
+    plt.show() # Display the one-step-ahead animation
+
+    # 8. Free-running prediction and animation
+    print("Generating free-running predictions...")
+    # Use a portion of the test data to prime the reservoir
+    priming_steps = 200 # Example: use 200 steps from X_test for priming
+    free_run_priming_input = X_test[:priming_steps]
+    
+    # The number of steps to predict in free-running mode
+    # Predict for the rest of the test set after priming
+    free_run_prediction_steps = len(y_test) - priming_steps 
+
+    # Call free_run_predict
+    free_run_predictions = rc_model.free_run_predict(free_run_priming_input, free_run_prediction_steps)
+
+    # Get the corresponding true_x1, true_y1 for the free-run prediction period
+    # The free-run predictions start after the priming sequence in the test set.
+    # The test set starts at index len(y_train) in the full true_x1, true_y1 arrays.
+    start_index_for_free_run_true = len(y_train) + priming_steps
+    end_index_for_free_run_true = start_index_for_free_run_true + free_run_prediction_steps
+
+    free_run_true_x1 = true_x1[start_index_for_free_run_true : end_index_for_free_run_true]
+    free_run_true_y1 = true_y1[start_index_for_free_run_true : end_index_for_free_run_true]
+
+    # The free_run_predictions are already x2, y2
+    free_run_predicted_x2 = free_run_predictions[:, 0]
+    free_run_predicted_y2 = free_run_predictions[:, 1]
+
+    print("Animating free-running results...")
+    ani_free_run = animate_free_run_pendulum(free_run_true_x1, free_run_true_y1,
+                                             free_run_predicted_x2, free_run_predicted_y2,
+                                             L1, L2, interval=dt*1000)
+    plt.show() # Display the free-running animation
 
     print("Double Pendulum example finished.")
 

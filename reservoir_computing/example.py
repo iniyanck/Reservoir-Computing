@@ -4,6 +4,7 @@ from reservoir_computing.reservoir import RNNReservoir
 from reservoir_computing.model import ReservoirComputingModel
 from reservoir_computing.trainer import Trainer
 from reservoir_computing.double_pendulum import generate_double_pendulum_data, animate_double_pendulum
+from reservoir_computing.point_following import generate_point_following_data, animate_point_following, PointFollowing
 
 def generate_mackey_glass(n_samples, tau=17, delay=100, seed=42):
     """
@@ -61,10 +62,37 @@ def run_example(problem_type="mackey_glass"):
         regularization_coeff = 1e-7 # Adjusted regularization
         title = 'Double Pendulum (X1,Y1,X2,Y2) Prediction using Reservoir Computing'
         y_label = 'Coordinate Value'
-    else:
-        raise ValueError("Invalid problem_type. Choose 'mackey_glass' or 'double_pendulum'.")
+    elif problem_type == "point_following":
+        # 1. Generate Data (Point Following)
+        print("Generating Point Following data...")
+        n_samples = 2000
+        teleport_interval = 100
+        max_speed = 0.1
+        acceleration_factor = 0.01
 
-    print(f"Data generated. Shape: {data.shape}")
+        true_positions, true_destinations, target_directions = generate_point_following_data(
+            n_samples, teleport_interval, max_speed, acceleration_factor
+        )
+        
+        # Input to the model: current position and destination coordinates
+        # Output from the model: direction coordinates (target_directions)
+        data_input = np.hstack((true_positions, true_destinations)) # (x_point, y_point, x_dest, y_dest)
+        data_output = target_directions # (dx, dy)
+
+        input_dim = data_input.shape[1] # 4 (x_point, y_point, x_dest, y_dest)
+        output_dim = data_output.shape[1] # 2 (dx, dy)
+        reservoir_dim = 300 # Increased reservoir size
+        spectral_radius = 0.9
+        leaking_rate = 0.3
+        input_scaling = 0.5
+        washout_steps = 200
+        regularization_coeff = 1e-7
+        title = 'Point Following Direction Prediction using Reservoir Computing'
+        y_label = 'Direction Value'
+    else:
+        raise ValueError("Invalid problem_type. Choose 'mackey_glass', 'double_pendulum', or 'point_following'.")
+
+    print(f"Data generated. Input shape: {data_input.shape}, Output shape: {data_output.shape}")
 
     # 2. Initialize Reservoir
     print("Initializing RNN Reservoir...")
@@ -95,9 +123,30 @@ def run_example(problem_type="mackey_glass"):
     print("Preparing data for training and testing...")
     train_ratio = 0.7
     trainer = Trainer(rc_model)
-    X_train, y_train, X_test, y_test = trainer.prepare_data(data, train_ratio=train_ratio, normalize=True)
-    print(f"Training data shape: {X_train.shape}, {y_train.shape}")
-    print(f"Test data shape: {X_test.shape}, {y_test.shape}")
+    
+    if problem_type == "point_following":
+        split_idx = int(n_samples * train_ratio)
+        
+        X_train = data_input[:split_idx]
+        y_train = data_output[:split_idx]
+        X_test = data_input[split_idx:]
+        y_test = data_output[split_idx:]
+
+        # Normalize input data (positions and destinations)
+        min_vals = data_input.min(axis=0)
+        max_vals = data_input.max(axis=0)
+        
+        X_train_normalized = (X_train - min_vals) / (max_vals - min_vals + 1e-8)
+        X_test_normalized = (X_test - min_vals) / (max_vals - min_vals + 1e-8)
+        
+        X_train = X_train_normalized
+        X_test = X_test_normalized
+        # y_train and y_test (target_directions) are already normalized vectors.
+    else:
+        X_train, y_train, X_test, y_test = trainer.prepare_data(data, train_ratio=train_ratio, normalize=True)
+    
+    print(f"Training input data shape: {X_train.shape}, output data shape: {y_train.shape}")
+    print(f"Test input data shape: {X_test.shape}, output data shape: {y_test.shape}")
 
     # 5. Train and Evaluate
     print("Training and evaluating model...")
@@ -137,6 +186,22 @@ def run_example(problem_type="mackey_glass"):
         
         axs[-1].set_xlabel('Time Steps')
         plt.tight_layout()
+    elif problem_type == "point_following": # Point Following (Direction X, Direction Y)
+        fig_coords, axs = plt.subplots(output_dim, 1, figsize=(12, 6), sharex=True)
+        coords_labels = ['Direction X', 'Direction Y']
+
+        for i in range(output_dim):
+            axs[i].plot(np.arange(len(y_train)), y_train[:, i], label=f'True Training {coords_labels[i]}', color='blue')
+            axs[i].plot(np.arange(len(y_train)), predictions_train[:, i], label=f'Predicted Training {coords_labels[i]}', color='cyan', linestyle='--')
+            axs[i].plot(np.arange(len(y_train), len(y_train) + len(y_test)), y_test[:, i], label=f'True Test {coords_labels[i]}', color='green')
+            axs[i].plot(np.arange(len(y_train), len(y_train) + len(y_test)), predictions_test[:, i], label=f'Predicted Test {coords_labels[i]}', color='red', linestyle='--')
+            axs[i].set_title(f'{title} ({coords_labels[i]}) Prediction')
+            axs[i].set_ylabel(f'{coords_labels[i]}')
+            axs[i].legend()
+            axs[i].grid(True)
+        
+        axs[-1].set_xlabel('Time Steps')
+        plt.tight_layout()
     
     # If there's an animation, store it to prevent it from being garbage collected
     # and ensure it displays when plt.show() is called.
@@ -162,6 +227,16 @@ def run_example(problem_type="mackey_glass"):
             predicted_x1_full, predicted_y1_full, predicted_x2_full, predicted_y2_full,
             L1=1.0, L2=1.0, interval=dt*1000
         )
+    elif problem_type == "point_following":
+        print("Animating results...")
+        # The true_positions, true_destinations, and target_directions are available from data generation
+        # We need to pass the full predicted directions
+        full_predicted_directions = np.vstack((predictions_train, predictions_test))
+        
+        animation_obj = animate_point_following(
+            true_positions, true_destinations, full_predicted_directions,
+            max_speed=max_speed, acceleration_factor=acceleration_factor, interval=50
+        )
 
     plt.show() # This will display all figures and animations
     print("Example finished.")
@@ -170,4 +245,6 @@ if __name__ == "__main__":
     # To run Mackey-Glass example:
     # run_example(problem_type="mackey_glass")
     # To run Double Pendulum example:
-    run_example(problem_type="double_pendulum")
+    # run_example(problem_type="double_pendulum")
+    # To run Point Following example:
+    run_example(problem_type="point_following")

@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from reservoir_computing.reservoir import RNNReservoir
+from reservoir_computing.model import ReservoirComputingModel
+from reservoir_computing.trainer import Trainer
 
 class PointFollowing:
     def __init__(self, initial_position=(0.0, 0.0), teleport_interval=100, max_speed=0.1, acceleration_factor=0.01):
@@ -11,10 +14,16 @@ class PointFollowing:
         self.max_speed = max_speed
         self.acceleration_factor = acceleration_factor
         self.time_step = 0
+        # Generate four random destination points once during initialization
+        # These points will be constant throughout the training run
+        self.destination_points = [np.random.uniform(-3, 3, 2) for _ in range(4)]
 
     def _teleport_destination(self):
-        # Teleport destination to a random point within a reasonable range
-        self.destination = np.random.uniform(-5, 5, 2)
+        # Randomly choose one of the four pre-generated destination points
+        self.destination = self.destination_points[np.random.randint(len(self.destination_points))]
+        # Reset position and velocity to origin
+        self.position = np.array([0.0, 0.0], dtype=float)
+        self.velocity = np.array([0.0, 0.0], dtype=float)
 
     def step(self, model_output):
         # model_output is the desired direction (dx, dy)
@@ -106,79 +115,64 @@ def generate_point_following_data(n_samples, teleport_interval=100, max_speed=0.
         
     return np.array(positions), np.array(destinations), np.array(target_directions)
 
-def animate_point_following(true_positions, true_destinations, predicted_directions,
+def animate_point_following(initial_position, destinations, predicted_directions,
                             max_speed=0.1, acceleration_factor=0.01, interval=50):
     """
-    Animates the point following behavior.
-    true_positions: (N, 2) array of true point positions
-    true_destinations: (N, 2) array of true destination positions
+    Animates the point following behavior based on model predictions.
+    initial_position: (1, 2) array, starting position of the point
+    destinations: (N, 2) array of destination positions over time
     predicted_directions: (N, 2) array of directions predicted by the model
     """
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.set_aspect('equal')
     ax.set_xlim(-6, 6)
     ax.set_ylim(-6, 6)
-    ax.set_title('Point Following Simulation: True vs Predicted')
+    ax.set_title('Point Following Simulation (Model Output)')
     ax.grid(True)
 
-    # True point and destination
-    point_true, = ax.plot([], [], 'o', color='blue', markersize=10, label='True Point')
-    destination_true, = ax.plot([], [], 'x', color='green', markersize=12, label='Destination')
+    # Point (simulated using predicted directions)
+    point_plot, = ax.plot([], [], 'o', color='red', markersize=8, label='Point')
+    destination_plot, = ax.plot([], [], 'x', color='green', markersize=12, label='Destination')
     
-    # Predicted point (simulated using predicted directions)
-    point_pred, = ax.plot([], [], 'o', color='red', markersize=8, label='Predicted Point')
-    
-    # # Arrow for predicted direction
-    # arrow_pred = ax.arrow(0, 0, 0, 0, head_width=0.2, head_length=0.3, fc='red', ec='red', alpha=0.7)
-
     time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
     ax.legend()
 
-    # Initialize a separate PointFollowing environment for the predicted path
-    # This environment will use the predicted_directions as its 'model_output'
-    predicted_env = PointFollowing(initial_position=true_positions[0], 
-                                   teleport_interval=100, # This doesn't matter for predicted path as destination is fixed by true_destinations
-                                   max_speed=max_speed, 
-                                   acceleration_factor=acceleration_factor)
-    predicted_path = [predicted_env.position.copy()]
+    # Initialize a PointFollowing environment for the simulation
+    sim_env = PointFollowing(initial_position=initial_position, 
+                             teleport_interval=100, # This doesn't matter as destination is set externally
+                             max_speed=max_speed, 
+                             acceleration_factor=acceleration_factor)
+    
+    # The path of the simulated point
+    simulated_path = [sim_env.position.copy()]
 
     def init():
-        point_true.set_data([], [])
-        destination_true.set_data([], [])
-        point_pred.set_data([], [])
+        point_plot.set_data([], [])
+        destination_plot.set_data([], [])
         time_text.set_text('')
-        # arrow_pred.set_visible(False)
-        return point_true, destination_true, point_pred, time_text # Removed arrow_pred from returned artists
+        return point_plot, destination_plot, time_text
 
     def update(frame):
-        # True values
-        point_true.set_data([true_positions[frame, 0]], [true_positions[frame, 1]])
-        destination_true.set_data([true_destinations[frame, 0]], [true_destinations[frame, 1]])
+        # Update sim_env's destination to match the destination for this frame
+        sim_env.destination = destinations[frame]
         
-        # Simulate predicted point's movement
-        if frame > 0:
-            # Update predicted_env's destination to match the true destination for this frame
-            predicted_env.destination = true_destinations[frame]
-            current_pred_pos, _ = predicted_env.step(predicted_directions[frame-1]) # Use previous frame's prediction for current step
-            predicted_path.append(current_pred_pos.copy())
+        # Simulate one step using the model's predicted direction
+        if frame < len(predicted_directions): # Ensure we don't go out of bounds for predictions
+            current_sim_pos, _ = sim_env.step(predicted_directions[frame])
+            simulated_path.append(current_sim_pos.copy())
+        else:
+            # If predictions run out, just keep the last position
+            simulated_path.append(simulated_env.position.copy())
         
-        point_pred.set_data([predicted_path[frame][0]], [predicted_path[frame][1]])
-
-        # # Update arrow for predicted direction
-        # current_pred_pos = predicted_path[frame]
-        # pred_dir = predicted_directions[frame]
-        
-        # arrow_pred.set_x(current_pred_pos[0])
-        # arrow_pred.set_y(current_pred_pos[1])
-        # arrow_pred.set_dx(pred_dir[0] * 0.5) # Scale arrow for visibility
-        # arrow_pred.set_dy(pred_dir[1] * 0.5) # Scale arrow for visibility
+        point_plot.set_data([simulated_path[frame][0]], [simulated_path[frame][1]])
+        destination_plot.set_data([destinations[frame][0]], [destinations[frame][1]])
         
         time_text.set_text(f'Time: {frame}')
 
-        return point_true, destination_true, point_pred, time_text
+        return point_plot, destination_plot, time_text
 
-    ani = FuncAnimation(fig, update, frames=len(true_positions),
-                        init_func=init, blit=False, interval=interval) # blit=False because arrow is dynamic
+    ani = FuncAnimation(fig, update, frames=len(destinations),
+                        init_func=init, blit=False, interval=interval)
     return ani
 
 def run_point_following_example():
@@ -186,7 +180,7 @@ def run_point_following_example():
 
     # 1. Generate Data
     print("Generating Point Following data...")
-    n_samples = 2000
+    n_samples = 10000 # Increased number of samples for more training data
     teleport_interval = 100
     max_speed = 0.1
     acceleration_factor = 0.01 # This is the 'acceleration' requested by the user
@@ -298,7 +292,7 @@ def run_point_following_example():
     full_predicted_directions = np.vstack((predictions_train, predictions_test))
 
     animation_obj = animate_point_following(
-        full_true_positions, full_true_destinations, full_predicted_directions,
+        full_true_positions[0], full_true_destinations, full_predicted_directions,
         max_speed=max_speed, acceleration_factor=acceleration_factor, interval=50
     )
     plt.show()

@@ -1,0 +1,9 @@
+# Ignore all PDF files
+*.pdf
+
+# Ignore Python bytecode
+__pycache__/
+*.pyc
+
+# Ignore log files
+*.log

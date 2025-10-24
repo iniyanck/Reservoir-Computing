@@ -1,5 +1,5 @@
 import numpy as np
-from .reservoir import Reservoir
+from reservoir_computing.components.reservoirs.base_reservoir import Reservoir
 
 class ReservoirComputingModel:
     """
@@ -56,6 +56,30 @@ class ReservoirComputingModel:
         b = states_with_bias.T @ targets_for_training
         self.W_out = np.linalg.solve(A, b)
 
+    def update_readout_weights_rl(self, state_with_bias: np.ndarray, target: np.ndarray, prediction: np.ndarray, learning_rate: float):
+        """
+        Updates the readout weights (W_out) using a simple online learning rule
+        based on the prediction error. This is suitable for continuous RL.
+
+        Args:
+            state_with_bias (np.ndarray): The current reservoir state with bias, shape (1, reservoir_dim + 1).
+            target (np.ndarray): The true target value for the current timestep, shape (1, output_dim).
+            prediction (np.ndarray): The model's prediction for the current timestep, shape (1, output_dim).
+            learning_rate (float): The learning rate for the weight update.
+        """
+        if self.W_out is None:
+            # Initialize W_out if it hasn't been trained yet (e.g., with zeros or small random values)
+            self.W_out = np.zeros((state_with_bias.shape[1], self.output_dim))
+
+        error = target - prediction # Shape (1, output_dim)
+        
+        # Simple delta rule / gradient descent update
+        # W_out_new = W_out_old + learning_rate * state_with_bias.T @ error
+        # state_with_bias is (1, D), error is (1, O)
+        # state_with_bias.T is (D, 1)
+        # (D, 1) @ (1, O) results in (D, O) which is the shape of W_out
+        self.W_out += learning_rate * (state_with_bias.T @ error)
+
     def predict(self, input_sequence: np.ndarray) -> np.ndarray:
         """
         Predicts output for a given input sequence using the trained model.
@@ -79,7 +103,7 @@ class ReservoirComputingModel:
         predictions = np.dot(states_with_bias, self.W_out)
         return predictions
 
-    def free_run_predict(self, initial_input_sequence: np.ndarray, prediction_steps: int) -> np.ndarray:
+    def free_run_predict(self, initial_input_sequence: np.ndarray, prediction_steps: int, true_input_for_prediction: np.ndarray = None) -> np.ndarray:
         """
         Generates predictions in a free-running (generative) mode.
         The model's own previous output is fed back as the input for the next step.
@@ -117,11 +141,20 @@ class ReservoirComputingModel:
         free_run_predictions.append(current_prediction.flatten())
 
         # 2. Free-running prediction
-        for _ in range(prediction_steps - 1): # -1 because we already made one prediction
-            # The previous prediction becomes the input for the next step
-            input_for_next_step = current_prediction # Shape (1, output_dim)
+        for i in range(prediction_steps - 1): # -1 because we already made one prediction
+            # For double pendulum, input is (x1, y1, x2, y2)
+            # We use true (x1, y1) and predicted (x2, y2)
+            if true_input_for_prediction is not None and self.reservoir.input_dim == 4 and self.output_dim == 2:
+                # Assuming true_input_for_prediction contains (x1, y1, x2, y2)
+                # We need x1, y1 from the true input, and x2, y2 from our prediction
+                true_x1_y1 = true_input_for_prediction[i:i+1, :2] # Shape (1, 2)
+                predicted_x2_y2 = current_prediction # Shape (1, 2)
+                input_for_next_step = np.hstack((true_x1_y1, predicted_x2_y2)) # Shape (1, 4)
+            else:
+                # Default behavior: previous prediction becomes the input for the next step
+                input_for_next_step = current_prediction # Shape (1, output_dim)
 
-            # Update reservoir state using the predicted output as input
+            # Update reservoir state using the constructed input
             new_reservoir_state = self.reservoir._compute_state(input_for_next_step, current_reservoir_state)
             self.reservoir._update_state(new_reservoir_state) # Update internal state
             current_reservoir_state = new_reservoir_state.copy() # Keep track of the state

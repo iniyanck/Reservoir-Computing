@@ -1,4 +1,8 @@
 # Configuration for specific applications
+
+application:
+  name: "double_pendulum" # Choose the application to run: "point_following", "double_pendulum", "rl_training"
+
 point_following:
   timesteps: 1000
   dt: 0.01
@@ -13,3 +17,16 @@ double_pendulum:
   l2: 1.0
   m1: 1.0
   m2: 1.0
+  priming_steps: 200 # Number of steps to prime the reservoir for free-running prediction
+
+rl_training:
+  timesteps: 1000
+  frequency: 0.02
+  amplitude: 1.0
+  noise_std: 0.05
+
+mackey_glass:
+  n_samples: 2000
+  tau: 17
+  delay: 100
+  seed: 42

@@ -3,3 +3,8 @@ trainer:
   n_drop: 100
   beta: 0.001
   regularization: 0.01
+  method: "regression" # Default training method: "regression" or "rl"
+  
+  # Parameters for RL continuous training
+  rl_learning_rate: 0.001
+  rl_epochs: 5

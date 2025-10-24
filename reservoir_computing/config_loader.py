@@ -2,14 +2,22 @@ import yaml
 import os
 
 class ConfigLoader:
-    def __init__(self, config_dir="reservoir_computing/config"):
-        self.config_dir = config_dir
+    def __init__(self):
         self.config = {}
+        self._load_global_config()
         self._load_all_configs()
 
+    def _load_global_config(self):
+        global_config_path = os.path.join("reservoir_computing/config", "global_config.yaml")
+        with open(global_config_path, 'r') as f:
+            global_config = yaml.safe_load(f)
+            self.config.update(global_config)
+        self.config_dir = self.config['paths']['config_dir']
+
     def _load_all_configs(self):
+        # Ensure global_config.yaml is not loaded again
         for filename in os.listdir(self.config_dir):
-            if filename.endswith(".yaml") or filename.endswith(".yml"):
+            if (filename.endswith(".yaml") or filename.endswith(".yml")) and filename != "global_config.yaml":
                 filepath = os.path.join(self.config_dir, filename)
                 with open(filepath, 'r') as f:
                     module_config = yaml.safe_load(f)
@@ -36,6 +44,12 @@ if __name__ == "__main__":
     loader = ConfigLoader()
     print("Loaded Configuration:")
     print(loader.config)
+
+    # Accessing paths from global config
+    print(f"\nConfig directory: {loader.get('paths.config_dir')}")
+    print(f"Methods directory: {loader.get('paths.methods_dir')}")
+    print(f"Components directory: {loader.get('paths.components_dir')}")
+    print(f"Examples directory: {loader.get('paths.examples_dir')}")
 
     # Accessing specific parameters
     print(f"\nReservoir n_reservoir: {loader.get('reservoir.n_reservoir')}")

@@ -1,7 +1,7 @@
 # Configuration for the Reservoir module
 reservoir:
-  n_inputs: 1
-  n_outputs: 1
+  n_inputs: 4
+  n_outputs: 2
   n_reservoir: 100
   spectral_radius: 0.9
   sparsity: 0.1
@@ -10,3 +10,4 @@ reservoir:
   leaking_rate: 1.0
   input_scaling: 1.0
   num_layers: 1
+  type: "rnn" # Type of reservoir: "rnn", "snn", etc.

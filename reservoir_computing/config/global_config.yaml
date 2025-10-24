@@ -1,0 +1,6 @@
+# Global configuration for Reservoir Computing project
+paths:
+  config_dir: "reservoir_computing/config"
+  methods_dir: "reservoir_computing/methods"
+  components_dir: "reservoir_computing/components"
+  examples_dir: "examples"

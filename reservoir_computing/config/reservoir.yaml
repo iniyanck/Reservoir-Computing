@@ -1,8 +1,8 @@
 # Configuration for the Reservoir module
 reservoir:
   n_inputs: 4
-  n_outputs: 2
-  n_reservoir: 100
+  n_outputs: 4
+  n_reservoir: 1000
   spectral_radius: 0.9
   sparsity: 0.1
   noise: 0.001

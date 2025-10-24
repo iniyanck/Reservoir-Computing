@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from reservoir_computing.components.reservoirs.base_reservoir import Reservoir
 
@@ -12,7 +13,16 @@ class ReservoirComputingModel:
         self.reservoir = reservoir
         self.output_dim = output_dim
         self.washout_steps = washout_steps
-        self.W_out = None # Readout weights
+        self.W_out = None # Readout weights, will be a torch.Tensor
+
+    def to(self, device):
+        """
+        Moves the model's readout weights to the specified device.
+        """
+        self.reservoir.to(device) # Move reservoir to device
+        if self.W_out is not None:
+            self.W_out = self.W_out.to(device)
+        return self
 
     def train(self, input_sequence: np.ndarray, target_sequence: np.ndarray, regularization_coeff: float = 0.0):
         """
@@ -29,32 +39,27 @@ class ReservoirComputingModel:
             raise ValueError("Input and target sequences must have the same number of timesteps.")
 
         # Run the reservoir to collect states
-        all_states = self.reservoir.run(input_sequence)
+        all_states_np = self.reservoir.run(input_sequence)
+        all_states = torch.tensor(all_states_np, dtype=torch.float32).to(self.reservoir.device)
+        target_sequence_t = torch.tensor(target_sequence, dtype=torch.float32).to(self.reservoir.device)
 
         # Apply washout
         if self.washout_steps > 0:
             states_for_training = all_states[self.washout_steps:]
-            targets_for_training = target_sequence[self.washout_steps:]
+            targets_for_training = target_sequence_t[self.washout_steps:]
         else:
             states_for_training = all_states
-            targets_for_training = target_sequence
+            targets_for_training = target_sequence_t
 
         # Add bias term to states
-        states_with_bias = np.hstack([states_for_training, np.ones((states_for_training.shape[0], 1))])
+        bias_term = torch.ones((states_for_training.shape[0], 1), device=self.reservoir.device)
+        states_with_bias = torch.cat([states_for_training, bias_term], dim=1)
 
         # Compute readout weights using ridge regression
-        # W_out = Y_target * X^T * (X * X^T + beta * I)^-1
-        # Or, in the form (X^T * X + beta * I)^-1 * X^T * Y_target
-        
-        # X_T_X = states_with_bias.T @ states_with_bias
-        # identity_matrix = np.eye(X_T_X.shape[0])
-        # self.W_out = np.linalg.inv(X_T_X + regularization_coeff * identity_matrix) @ states_with_bias.T @ targets_for_training
-
-        # A more numerically stable way using np.linalg.solve for (A @ x = b)
         # (X^T @ X + beta * I) @ W_out = X^T @ Y_target
-        A = states_with_bias.T @ states_with_bias + regularization_coeff * np.eye(states_with_bias.shape[1])
-        b = states_with_bias.T @ targets_for_training
-        self.W_out = np.linalg.solve(A, b)
+        A = torch.matmul(states_with_bias.T, states_with_bias) + regularization_coeff * torch.eye(states_with_bias.shape[1], device=self.reservoir.device)
+        b = torch.matmul(states_with_bias.T, targets_for_training)
+        self.W_out = torch.linalg.solve(A, b)
 
     def update_readout_weights_rl(self, state_with_bias: np.ndarray, target: np.ndarray, prediction: np.ndarray, learning_rate: float):
         """
@@ -67,18 +72,19 @@ class ReservoirComputingModel:
             prediction (np.ndarray): The model's prediction for the current timestep, shape (1, output_dim).
             learning_rate (float): The learning rate for the weight update.
         """
+        # Convert inputs to torch tensors and move to device
+        state_with_bias_t = torch.tensor(state_with_bias, dtype=torch.float32).to(self.reservoir.device)
+        target_t = torch.tensor(target, dtype=torch.float32).to(self.reservoir.device)
+        prediction_t = torch.tensor(prediction, dtype=torch.float32).to(self.reservoir.device)
+        
         if self.W_out is None:
             # Initialize W_out if it hasn't been trained yet (e.g., with zeros or small random values)
-            self.W_out = np.zeros((state_with_bias.shape[1], self.output_dim))
+            self.W_out = torch.zeros((state_with_bias_t.shape[1], self.output_dim), device=self.reservoir.device)
 
-        error = target - prediction # Shape (1, output_dim)
+        error = target_t - prediction_t # Shape (1, output_dim)
         
         # Simple delta rule / gradient descent update
-        # W_out_new = W_out_old + learning_rate * state_with_bias.T @ error
-        # state_with_bias is (1, D), error is (1, O)
-        # state_with_bias.T is (D, 1)
-        # (D, 1) @ (1, O) results in (D, O) which is the shape of W_out
-        self.W_out += learning_rate * (state_with_bias.T @ error)
+        self.W_out += learning_rate * torch.matmul(state_with_bias_t.T, error)
 
     def predict(self, input_sequence: np.ndarray) -> np.ndarray:
         """
@@ -94,14 +100,16 @@ class ReservoirComputingModel:
             raise RuntimeError("Model has not been trained. Call 'train' method first.")
 
         # Run the reservoir to collect states
-        all_states = self.reservoir.run(input_sequence)
+        all_states_np = self.reservoir.run(input_sequence)
+        all_states = torch.tensor(all_states_np, dtype=torch.float32).to(self.reservoir.device)
 
         # Add bias term to states for prediction
-        states_with_bias = np.hstack([all_states, np.ones((all_states.shape[0], 1))])
+        bias_term = torch.ones((all_states.shape[0], 1), device=self.reservoir.device)
+        states_with_bias = torch.cat([all_states, bias_term], dim=1)
 
         # Compute output
-        predictions = np.dot(states_with_bias, self.W_out)
-        return predictions
+        predictions = torch.matmul(states_with_bias, self.W_out)
+        return predictions.cpu().numpy()
 
     def free_run_predict(self, initial_input_sequence: np.ndarray, prediction_steps: int, true_input_for_prediction: np.ndarray = None) -> np.ndarray:
         """
@@ -119,23 +127,26 @@ class ReservoirComputingModel:
         """
         if self.W_out is None:
             raise RuntimeError("Model has not been trained. Call 'train' method first.")
-        if self.reservoir.state is None:
-            # Initialize reservoir state if not already set (e.g., if train was not called)
-            self.reservoir.state = np.zeros((1, self.reservoir.reservoir_dim))
+        
+        # The reservoir's state is already a torch tensor on the correct device due to base_reservoir.py changes
+        # if self.reservoir.state is None:
+        #     self.reservoir.state = torch.zeros((1, self.reservoir.reservoir_dim), device=self.reservoir.device)
 
         # 1. Prime the reservoir with the initial_input_sequence
         # This updates the internal state of the reservoir
-        for t in range(initial_input_sequence.shape[0]):
-            input_t = initial_input_sequence[t:t+1, :] # Shape (1, input_dim)
+        initial_input_sequence_t = torch.tensor(initial_input_sequence, dtype=torch.float32).to(self.reservoir.device)
+        for t in range(initial_input_sequence_t.shape[0]):
+            input_t = initial_input_sequence_t[t:t+1, :] # Shape (1, input_dim)
             new_state = self.reservoir._compute_state(input_t, self.reservoir.state)
             self.reservoir._update_state(new_state)
 
         # Get the last state after priming
-        current_reservoir_state = self.reservoir.state.copy() # Shape (1, reservoir_dim)
+        current_reservoir_state = self.reservoir.state.clone() # Shape (1, reservoir_dim)
 
         # Make an initial prediction based on the last primed state
-        last_primed_state_with_bias = np.hstack([current_reservoir_state, np.ones((1, 1))])
-        current_prediction = np.dot(last_primed_state_with_bias, self.W_out) # Shape (1, output_dim)
+        bias_term_initial = torch.ones((1, 1), device=self.reservoir.device)
+        last_primed_state_with_bias = torch.cat([current_reservoir_state, bias_term_initial], dim=1)
+        current_prediction = torch.matmul(last_primed_state_with_bias, self.W_out) # Shape (1, output_dim)
 
         free_run_predictions = []
         free_run_predictions.append(current_prediction.flatten())
@@ -144,24 +155,20 @@ class ReservoirComputingModel:
         for i in range(prediction_steps - 1): # -1 because we already made one prediction
             # For double pendulum, input is (x1, y1, x2, y2)
             # We use true (x1, y1) and predicted (x2, y2)
-            if true_input_for_prediction is not None and self.reservoir.input_dim == 4 and self.output_dim == 2:
-                # Assuming true_input_for_prediction contains (x1, y1, x2, y2)
-                # We need x1, y1 from the true input, and x2, y2 from our prediction
-                true_x1_y1 = true_input_for_prediction[i:i+1, :2] # Shape (1, 2)
-                predicted_x2_y2 = current_prediction # Shape (1, 2)
-                input_for_next_step = np.hstack((true_x1_y1, predicted_x2_y2)) # Shape (1, 4)
-            else:
-                # Default behavior: previous prediction becomes the input for the next step
-                input_for_next_step = current_prediction # Shape (1, output_dim)
+            # Default behavior for free-running: previous prediction becomes the input for the next step.
+            # If the model is predicting all input dimensions, this is correct.
+            # If only a subset of inputs are predicted, more complex logic would be needed here
+            # to combine true inputs with predicted outputs.
+            input_for_next_step = current_prediction # Shape (1, output_dim)
 
             # Update reservoir state using the constructed input
             new_reservoir_state = self.reservoir._compute_state(input_for_next_step, current_reservoir_state)
             self.reservoir._update_state(new_reservoir_state) # Update internal state
-            current_reservoir_state = new_reservoir_state.copy() # Keep track of the state
+            current_reservoir_state = new_reservoir_state.clone() # Keep track of the state
 
             # Make a new prediction based on the new reservoir state
-            new_state_with_bias = np.hstack([current_reservoir_state, np.ones((1, 1))])
-            current_prediction = np.dot(new_state_with_bias, self.W_out)
+            new_state_with_bias = torch.cat([current_reservoir_state, torch.ones((1, 1), device=self.reservoir.device)], dim=1)
+            current_prediction = torch.matmul(new_state_with_bias, self.W_out)
             free_run_predictions.append(current_prediction.flatten())
 
-        return np.array(free_run_predictions)
+        return torch.stack(free_run_predictions).cpu().numpy()

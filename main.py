@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import torch # Import torch
 from reservoir_computing.config_loader import ConfigLoader
 from reservoir_computing.components.model import ReservoirComputingModel
 from reservoir_computing.methods.trainer import TrainerFactory
@@ -11,6 +12,10 @@ def main():
     # 1. Load configuration
     config_loader = ConfigLoader()
     
+    # Determine device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     # 2. Create example problem
     print("Creating example problem...")
     example_problem = ExampleFactory.create_example(config_loader)
@@ -27,7 +32,7 @@ def main():
     elif application_name == 'double_pendulum':
         # For double pendulum, full_data is (input_data, target_data) stacked
         input_dim = 4 # (x1, y1, x2, y2)
-        output_dim = 2 # (x2, y2)
+        output_dim = 4 # (x1, y1, x2, y2)
         X = full_data[:, :input_dim]
         y = full_data[:, input_dim:]
     elif application_name == 'rl_training' or application_name == 'mackey_glass':
@@ -41,7 +46,7 @@ def main():
 
     # 3. Create reservoir
     print("Creating reservoir...")
-    reservoir = ReservoirFactory.create_reservoir(config_loader)
+    reservoir = ReservoirFactory.create_reservoir(config_loader, device=device) # Pass device
     # Ensure reservoir's input_dim is correctly set
     reservoir.input_dim = input_dim 
     
@@ -49,6 +54,7 @@ def main():
     print("Creating Reservoir Computing Model...")
     washout_steps = config_loader.get('trainer.n_drop', 0)
     model = ReservoirComputingModel(reservoir, output_dim, washout_steps)
+    model.to(device) # Move model to device
 
     # 5. Create trainer
     print("Creating Trainer...")
@@ -165,10 +171,10 @@ def main():
         dp_instance = example_problem
         _, true_x1_full, true_y1_full, true_x2_full, true_y2_full = dp_instance.simulate(dp_instance.initial_state, dp_instance.time_steps)
 
-        predicted_x1_full = true_x1_full
-        predicted_y1_full = true_y1_full
-        predicted_x2_full = predictions_full_denorm[:, 0]
-        predicted_y2_full = predictions_full_denorm[:, 1]
+        predicted_x1_full = predictions_full_denorm[:, 0]
+        predicted_y1_full = predictions_full_denorm[:, 1]
+        predicted_x2_full = predictions_full_denorm[:, 2]
+        predicted_y2_full = predictions_full_denorm[:, 3]
 
         print("Animating Double Pendulum one-step-ahead results...")
         ani_one_step = animate_double_pendulum(true_x1_full, true_y1_full, true_x2_full, true_y2_full,
@@ -192,11 +198,13 @@ def main():
         free_run_true_x1 = true_x1_full[start_index_for_free_run_true : end_index_for_free_run_true]
         free_run_true_y1 = true_y1_full[start_index_for_free_run_true : end_index_for_free_run_true]
 
-        free_run_predicted_x2 = free_run_predictions_denorm[:, 0]
-        free_run_predicted_y2 = free_run_predictions_denorm[:, 1]
+        free_run_predicted_x1 = free_run_predictions_denorm[:, 0]
+        free_run_predicted_y1 = free_run_predictions_denorm[:, 1]
+        free_run_predicted_x2 = free_run_predictions_denorm[:, 2]
+        free_run_predicted_y2 = free_run_predictions_denorm[:, 3]
 
         print("Animating free-running results...")
-        ani_free_run = animate_free_run_pendulum(free_run_true_x1, free_run_true_y1,
+        ani_free_run = animate_free_run_pendulum(free_run_predicted_x1, free_run_predicted_y1,
                                                  free_run_predicted_x2, free_run_predicted_y2,
                                                  L1=dp_instance.L1, L2=dp_instance.L2, interval=dp_instance.dt*1000)
         plt.show()

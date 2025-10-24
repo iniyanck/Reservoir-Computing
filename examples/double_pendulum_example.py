@@ -87,8 +87,8 @@ class DoublePendulum(Example): # Inherit from Example
         # Input to the model: (x1, y1, x2, y2)
         input_data = np.vstack((x1, y1, x2, y2)).T # Shape (timesteps, 4)
         
-        # Target for the model: (x2, y2)
-        target_data = np.vstack((x2, y2)).T # Shape (timesteps, 2)
+        # Target for the model: (x1, y1, x2, y2)
+        target_data = np.vstack((x1, y1, x2, y2)).T # Shape (timesteps, 4)
 
         # The main.py expects a single data array. We'll stack inputs and targets.
         # The trainer will then split them.
